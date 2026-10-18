@@ -1,17 +1,30 @@
 use fc_core::config::{CONTROL_RATE_HZ, DT};
+use fc_core::math::Vec3;
+use fc_sim::{QuadParams, QuadSim};
 
 fn main() {
-    let duration_s = 5.0_f32;
-    let total_steps = (duration_s * CONTROL_RATE_HZ) as u32;
+    let mut sim = QuadSim::new(QuadParams::default());
+    let total_steps = (2.0 * CONTROL_RATE_HZ) as u32;
 
     for step in 0..total_steps {
-        // Time comes from an integer step counter, not from accumulating
-        // floats: no drift, fully reproducible.
         let t = step as f32 * DT;
 
-        // Later: sensors -> validate -> estimate -> PID -> mix -> sim
-        if step % 1000 == 0 {
-            println!("step {step:5}  t = {t:.3} s");
+        // A 0.1 s torque pulse on the roll axis: a "kick" to the drone.
+        let torque = if t < 0.1 {
+            Vec3::new(0.01, 0.0, 0.0)
+        } else {
+            Vec3::ZERO
+        };
+
+        sim.step(torque, DT);
+
+        if step % 200 == 0 {
+            println!(
+                "t = {:.2} s   roll = {:6.2} deg   roll rate = {:6.2} deg/s",
+                t,
+                sim.attitude.roll.to_degrees(),
+                sim.rates.x.to_degrees()
+            );
         }
     }
 }

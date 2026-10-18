@@ -32,6 +32,15 @@ impl Vec3 {
     pub fn is_finite(self) -> bool {
         self.x.is_finite() && self.y.is_finite() && self.z.is_finite()
     }
+
+    /// Cross product: a × b.
+    pub fn cross(self, o: Vec3) -> Vec3 {
+        Vec3::new(
+            self.y * o.z - self.z * o.y,
+            self.z * o.x - self.x * o.z,
+            self.x * o.y - self.y * o.x,
+        )
+    }
 }
 
 impl Add for Vec3 {
@@ -100,6 +109,13 @@ mod tests {
         assert!(Vec3::new(1.0, 2.0, 3.0).is_finite());
         assert!(!Vec3::new(f32::NAN, 0.0, 0.0).is_finite());
         assert!(!Vec3::new(0.0, f32::INFINITY, 0.0).is_finite());
+    }
+
+    #[test]
+    fn vec3_cross_product() {
+        let x = Vec3::new(1.0, 0.0, 0.0);
+        let y = Vec3::new(0.0, 1.0, 0.0);
+        assert_eq!(x.cross(y), Vec3::new(0.0, 0.0, 1.0));
     }
 
     #[test]

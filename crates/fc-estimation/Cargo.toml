@@ -1,0 +1,12 @@
+[package]
+name = "fc-estimation"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+fc-core = { path = "../fc-core" }
+fc-sensors = { path = "../fc-sensors" }
+
+[dev-dependencies]
+fc-sim = { path = "../fc-sim" }
+

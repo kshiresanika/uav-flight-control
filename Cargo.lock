@@ -9,6 +9,7 @@ dependencies = [
  "fc-control",
  "fc-core",
  "fc-estimation",
+ "fc-safety",
  "fc-sensors",
  "fc-sim",
 ]
@@ -32,6 +33,17 @@ name = "fc-estimation"
 version = "0.1.0"
 dependencies = [
  "fc-core",
+ "fc-sensors",
+ "fc-sim",
+]
+
+[[package]]
+name = "fc-safety"
+version = "0.1.0"
+dependencies = [
+ "fc-control",
+ "fc-core",
+ "fc-estimation",
  "fc-sensors",
  "fc-sim",
 ]

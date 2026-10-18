@@ -12,6 +12,7 @@ dependencies = [
  "fc-safety",
  "fc-sensors",
  "fc-sim",
+ "fc-telemetry",
 ]
 
 [[package]]
@@ -58,6 +59,13 @@ dependencies = [
 
 [[package]]
 name = "fc-sim"
+version = "0.1.0"
+dependencies = [
+ "fc-core",
+]
+
+[[package]]
+name = "fc-telemetry"
 version = "0.1.0"
 dependencies = [
  "fc-core",

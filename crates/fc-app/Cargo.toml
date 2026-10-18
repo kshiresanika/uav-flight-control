@@ -10,6 +10,4 @@ fc-sensors = { path = "../fc-sensors" }
 fc-estimation = { path = "../fc-estimation" }
 fc-control = { path = "../fc-control" }
 fc-safety = { path = "../fc-safety" }
-
-
-
+fc-telemetry = { path = "../fc-telemetry" }

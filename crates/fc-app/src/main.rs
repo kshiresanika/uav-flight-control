@@ -1,88 +1,73 @@
-use fc_control::attitude::{AttitudeController, AttitudeGains};
-use fc_control::limiter::{Limiter, LimiterConfig};
-use fc_control::mixer::{Mixer, MixerConfig, NUM_MOTORS};
-use fc_core::config::{CONTROL_RATE_HZ, DT};
-use fc_core::math::Attitude;
-use fc_estimation::{AttitudeEstimator, EstimatorConfig};
-use fc_safety::{FlightMode, SafetyConfig, SafetySupervisor};
-use fc_sensors::imu::{Imu, ImuConfig};
-use fc_sensors::validation::{ImuValidator, ImuValidatorConfig};
-use fc_sim::{QuadParams, QuadSim};
+mod scenario;
 
-fn main() {
-    let mut sim = QuadSim::new(QuadParams::default());
-    sim.attitude = Attitude {
-        roll: 0.35,
-        pitch: -0.20,
-        yaw: 0.0,
+use fc_telemetry::TelemetryLogger;
+use scenario::Scenario;
+use std::fs::{self, File};
+use std::io::{self, BufWriter};
+use std::path::Path;
+use std::process::ExitCode;
+
+/// Log every 10th tick: 1 kHz loop -> 100 Hz telemetry.
+const LOG_DECIMATION: u32 = 10;
+
+fn print_usage() {
+    eprintln!("usage: fc-app <scenario> [output.csv]");
+    eprintln!("scenarios:");
+    for s in Scenario::ALL {
+        eprintln!("  {}", s.name());
+    }
+}
+
+fn execute(scenario: Scenario, path: &str) -> io::Result<()> {
+    // Create the output folder if needed (e.g. docs/).
+    let parent = Path::new(path)
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty());
+    if let Some(parent) = parent {
+        fs::create_dir_all(parent)?;
+    }
+
+    let file = File::create(path)?;
+    let mut logger = TelemetryLogger::new(BufWriter::new(file), LOG_DECIMATION)?;
+    let summary = scenario::run(scenario, &mut logger)?;
+    logger.flush()?;
+
+    println!("scenario:   {}", scenario.name());
+    println!(
+        "final true: roll {:.2} deg, pitch {:.2} deg",
+        summary.final_attitude.roll.to_degrees(),
+        summary.final_attitude.pitch.to_degrees()
+    );
+    println!("final mode: {:?}", summary.final_mode);
+    if let Some(reason) = summary.failsafe_reason {
+        println!("failsafe:   {reason:?}");
+    }
+    println!("telemetry:  {} rows -> {path}", logger.rows_written());
+    Ok(())
+}
+
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+
+    let Some(name) = args.first() else {
+        print_usage();
+        return ExitCode::FAILURE;
     };
+    let Some(scenario) = Scenario::from_name(name) else {
+        eprintln!("unknown scenario '{name}'");
+        print_usage();
+        return ExitCode::FAILURE;
+    };
+    let path = args
+        .get(1)
+        .cloned()
+        .unwrap_or_else(|| format!("telemetry_{}.csv", scenario.name()));
 
-    let mut imu = Imu::new(ImuConfig::default(), 42);
-    let mut validator = ImuValidator::new(ImuValidatorConfig::default());
-    let mut supervisor = SafetySupervisor::new(SafetyConfig::default());
-    let mut est = AttitudeEstimator::new(EstimatorConfig::default());
-    let mut ctrl = AttitudeController::new(AttitudeGains::default());
-    let limiter = Limiter::new(LimiterConfig::default());
-    let mixer = Mixer::new(MixerConfig::default());
-
-    let first = imu.measure(sim.attitude, sim.rates);
-    est.initialize_from_accel(first.accel);
-
-    let mut previous_mode = FlightMode::Normal;
-    let total_steps = (8.0 * CONTROL_RATE_HZ) as u32;
-    println!("   t  | mode      | roll true |   M1    M2    M3    M4");
-
-    for step in 0..total_steps {
-        let t = step as f32 * DT;
-        let mut raw = imu.measure(sim.attitude, sim.rates);
-
-        // Fault injection: a 3 ms gyro glitch at 2.0 s,
-        // then the gyro dies for good at 4.0 s.
-        match step {
-            2000..=2002 => raw.gyro.x = f32::NAN,
-            4000.. => raw.gyro.x = f32::NAN,
-            _ => {}
-        }
-
-        let validation = validator.check(&raw);
-        let clean = supervisor.process_sample(&raw, &validation);
-        let att = est.update(&clean, DT);
-        supervisor.check_attitude(att);
-
-        let mode = supervisor.mode();
-        if mode != previous_mode {
-            println!(
-                "t = {t:.3} s  {previous_mode:?} -> {mode:?}   reason: {:?}",
-                supervisor.failsafe_reason()
-            );
-            previous_mode = mode;
-        }
-
-        let cmd = supervisor.command(Attitude::default(), 0.5);
-        if !cmd.motors_enabled {
-            ctrl.reset();
-        }
-        let torque_cmd = ctrl.update(cmd.setpoint, att, clean.gyro, DT);
-        let (thr, torque) = limiter.apply(cmd.throttle, torque_cmd);
-        let motors = if cmd.motors_enabled {
-            mixer.mix(thr, torque)
-        } else {
-            [0.0; NUM_MOTORS]
-        };
-        let (_thrust, applied) = mixer.forward(&motors);
-        sim.step(applied, DT);
-
-        if step % 1000 == 0 {
-            println!(
-                "{:4.1} s | {:9} | {:9.2} | {:5.2} {:5.2} {:5.2} {:5.2}",
-                t,
-                format!("{mode:?}"),
-                sim.attitude.roll.to_degrees(),
-                motors[0],
-                motors[1],
-                motors[2],
-                motors[3]
-            );
+    match execute(scenario, &path) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::FAILURE
         }
     }
 }

@@ -1,49 +1,52 @@
+use fc_control::attitude::{AttitudeController, AttitudeGains};
 use fc_core::config::{CONTROL_RATE_HZ, DT};
-use fc_core::math::Vec3;
+use fc_core::math::Attitude;
 use fc_estimation::{AttitudeEstimator, EstimatorConfig};
 use fc_sensors::imu::{Imu, ImuConfig};
 use fc_sim::{QuadParams, QuadSim};
 
 fn main() {
     let mut sim = QuadSim::new(QuadParams::default());
+    // Start badly tilted: 20 deg roll, -11 deg pitch.
+    sim.attitude = Attitude {
+        roll: 0.35,
+        pitch: -0.20,
+        yaw: 0.0,
+    };
+
     let mut imu = Imu::new(ImuConfig::default(), 42);
     let mut est = AttitudeEstimator::new(EstimatorConfig::default());
+    let mut ctrl = AttitudeController::new(AttitudeGains::default());
 
     let first = imu.measure(sim.attitude, sim.rates);
     est.initialize_from_accel(first.accel);
 
-    let mut gyro_only_roll = 0.0_f32;
-    let total_steps = (10.0 * CONTROL_RATE_HZ) as u32;
+    let total_steps = (8.0 * CONTROL_RATE_HZ) as u32;
+    println!("   t  | roll set | roll true | pitch true | yaw true | torque x");
 
-    println!("   t   true roll | filter roll (err) | gyro-only roll (err) | yaw est");
     for step in 0..total_steps {
         let t = step as f32 * DT;
 
-        // A 0.1 s torque pulse on the roll axis: a "kick" to the drone.
-        let torque = if t < 0.1 {
-            Vec3::new(0.01, 0.0, 0.0)
-        } else {
-            Vec3::ZERO
+        // Hold level for 4 s, then command a 10 degree roll.
+        let setpoint = Attitude {
+            roll: if t >= 4.0 { 0.1745 } else { 0.0 },
+            ..Attitude::default()
         };
 
-        sim.step(torque, DT);
         let sample = imu.measure(sim.attitude, sim.rates);
         let att = est.update(&sample, DT);
-        gyro_only_roll += sample.gyro.x * DT;
+        let torque = ctrl.update(setpoint, att, sample.gyro, DT);
+        sim.step(torque, DT);
 
-        if step % 1000 == 0 {
-            let truth = sim.attitude.roll.to_degrees();
-            let filt = att.roll.to_degrees();
-            let gyro = gyro_only_roll.to_degrees();
+        if step % 500 == 0 {
             println!(
-                "{:4.1} s {:8.2} deg | {:7.2} ({:5.2}) | {:7.2} ({:5.2}) | {:6.2} deg",
+                "{:4.1} s | {:6.1} | {:8.2} | {:9.2} | {:8.2} | {:8.4}",
                 t,
-                truth,
-                filt,
-                filt - truth,
-                gyro,
-                gyro - truth,
-                att.yaw.to_degrees()
+                setpoint.roll.to_degrees(),
+                sim.attitude.roll.to_degrees(),
+                sim.attitude.pitch.to_degrees(),
+                sim.attitude.yaw.to_degrees(),
+                torque.x
             );
         }
     }

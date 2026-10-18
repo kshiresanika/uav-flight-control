@@ -7,12 +7,20 @@ name = "fc-app"
 version = "0.1.0"
 dependencies = [
  "fc-core",
+ "fc-sensors",
  "fc-sim",
 ]
 
 [[package]]
 name = "fc-core"
 version = "0.1.0"
+
+[[package]]
+name = "fc-sensors"
+version = "0.1.0"
+dependencies = [
+ "fc-core",
+]
 
 [[package]]
 name = "fc-sim"

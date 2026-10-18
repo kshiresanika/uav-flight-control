@@ -1,4 +1,6 @@
 use fc_control::attitude::{AttitudeController, AttitudeGains};
+use fc_control::limiter::{Limiter, LimiterConfig};
+use fc_control::mixer::{Mixer, MixerConfig};
 use fc_core::config::{CONTROL_RATE_HZ, DT};
 use fc_core::math::Attitude;
 use fc_estimation::{AttitudeEstimator, EstimatorConfig};
@@ -17,12 +19,15 @@ fn main() {
     let mut imu = Imu::new(ImuConfig::default(), 42);
     let mut est = AttitudeEstimator::new(EstimatorConfig::default());
     let mut ctrl = AttitudeController::new(AttitudeGains::default());
+    let limiter = Limiter::new(LimiterConfig::default());
+    let mixer = Mixer::new(MixerConfig::default());
+    let throttle = 0.5;
 
     let first = imu.measure(sim.attitude, sim.rates);
     est.initialize_from_accel(first.accel);
 
     let total_steps = (8.0 * CONTROL_RATE_HZ) as u32;
-    println!("   t  | roll set | roll true | pitch true | yaw true | torque x");
+    println!("   t  | roll set | roll true | pitch true |   M1    M2    M3    M4");
 
     for step in 0..total_steps {
         let t = step as f32 * DT;
@@ -35,18 +40,23 @@ fn main() {
 
         let sample = imu.measure(sim.attitude, sim.rates);
         let att = est.update(&sample, DT);
-        let torque = ctrl.update(setpoint, att, sample.gyro, DT);
-        sim.step(torque, DT);
+        let torque_cmd = ctrl.update(setpoint, att, sample.gyro, DT);
+        let (thr, torque) = limiter.apply(throttle, torque_cmd);
+        let motors = mixer.mix(thr, torque);
+        let (_thrust, applied) = mixer.forward(&motors);
+        sim.step(applied, DT);
 
         if step % 500 == 0 {
             println!(
-                "{:4.1} s | {:6.1} | {:8.2} | {:9.2} | {:8.2} | {:8.4}",
+                "{:4.1} s | {:6.1} | {:8.2} | {:9.2} | {:5.2} {:5.2} {:5.2} {:5.2}",
                 t,
                 setpoint.roll.to_degrees(),
                 sim.attitude.roll.to_degrees(),
                 sim.attitude.pitch.to_degrees(),
-                sim.attitude.yaw.to_degrees(),
-                torque.x
+                motors[0],
+                motors[1],
+                motors[2],
+                motors[3]
             );
         }
     }

@@ -6,3 +6,7 @@ edition = "2024"
 [dependencies]
 fc-core = { path = "../fc-core" }
 
+[dev-dependencies]
+fc-sim = { path = "../fc-sim" }
+
+

@@ -136,7 +136,11 @@ impl SafetySupervisor {
     pub fn failsafe_reason(&self) -> Option<FailsafeReason> {
         self.reason
     }
-
+    /// True when the accelerometer delivered a valid sample this tick.
+    /// If false, the estimator must not use the (held) accelerometer value.
+    pub fn accel_trusted(&self) -> bool {
+        self.accel_bad == 0
+    }
     fn enter_failsafe(&mut self, reason: FailsafeReason) {
         self.mode = FlightMode::Failsafe;
         self.reason = Some(reason);
@@ -504,5 +508,15 @@ mod tests {
         let clean = s.process_sample(&sample(f32::NAN), &ok());
         assert!(clean.gyro.is_finite());
         assert_eq!(s.mode(), FlightMode::Degraded);
+    }
+    #[test]
+    fn accel_trust_follows_the_validation_result() {
+        let mut s = supervisor();
+        s.process_sample(&sample(0.0), &ok());
+        assert!(s.accel_trusted());
+        s.process_sample(&sample(0.0), &accel_fault());
+        assert!(!s.accel_trusted());
+        s.process_sample(&sample(0.0), &ok());
+        assert!(s.accel_trusted());
     }
 }

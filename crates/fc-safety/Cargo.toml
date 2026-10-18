@@ -11,3 +11,6 @@ fc-sensors = { path = "../fc-sensors" }
 fc-sim = { path = "../fc-sim" }
 fc-estimation = { path = "../fc-estimation" }
 fc-control = { path = "../fc-control" }
+
+[lints]
+workspace = true

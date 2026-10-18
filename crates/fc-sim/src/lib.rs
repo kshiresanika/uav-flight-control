@@ -140,4 +140,16 @@ mod tests {
         assert_eq!(a.attitude, b.attitude);
         assert_eq!(a.rates, b.rates);
     }
+    #[test]
+
+    fn pitch_is_clamped_below_gimbal_lock() {
+        let mut sim = QuadSim::new(no_drag());
+        sim.rates = Vec3::new(0.0, 10.0, 0.0); // fast nose-up rotation
+        for _ in 0..1000 {
+            sim.step(Vec3::ZERO, DT);
+        }
+        assert!((sim.attitude.pitch - MAX_PITCH).abs() < 1e-6);
+        assert!(sim.attitude.roll.is_finite());
+        assert!(sim.attitude.yaw.is_finite());
+    }
 }

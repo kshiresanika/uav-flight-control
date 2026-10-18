@@ -9,4 +9,6 @@ fc-core = { path = "../fc-core" }
 [dev-dependencies]
 fc-sim = { path = "../fc-sim" }
 
+[lints]
+workspace = true
 

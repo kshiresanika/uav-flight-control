@@ -10,3 +10,5 @@ fc-sensors = { path = "../fc-sensors" }
 [dev-dependencies]
 fc-sim = { path = "../fc-sim" }
 
+[lints]
+workspace = true

@@ -1,15 +1,51 @@
 name: CI
 on: [push, pull_request]
+
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  build:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test --all
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
-      
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --locked
+
+  scenarios:
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pandas matplotlib
+      - name: Fly all scenarios and plot them
+        run: |
+          for s in recovery gyro-glitch gyro-dead accel-dead; do
+            cargo run --locked -q -p fc-app -- "$s" "out/$s.csv"
+            python scripts/plot_telemetry.py "out/$s.csv" "out/$s.png"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: telemetry-plots
+          path: out/

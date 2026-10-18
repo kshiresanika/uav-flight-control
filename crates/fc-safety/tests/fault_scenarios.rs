@@ -47,7 +47,11 @@ fn run(seconds: f32, inject: impl Fn(usize, &mut ImuSample)) -> Outcome {
 
         let validation = validator.check(&raw);
         let clean = supervisor.process_sample(&raw, &validation);
-        let att = est.update(&clean, DT);
+        let att = if supervisor.accel_trusted() {
+            est.update(&clean, DT)
+        } else {
+            est.predict(clean.gyro, DT)
+        };
         supervisor.check_attitude(att);
 
         let cmd = supervisor.command(Attitude::default(), 0.5);

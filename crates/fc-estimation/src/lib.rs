@@ -53,12 +53,9 @@ impl AttitudeEstimator {
         };
     }
 
-    /// One filter step: predict with the gyro, correct with the accelerometer.
-    pub fn update(&mut self, sample: &ImuSample, dt: f32) -> Attitude {
-        let alpha = self.config.tau / (self.config.tau + dt);
-        let (p, q, r) = (sample.gyro.x, sample.gyro.y, sample.gyro.z);
-
-        // 1. Predict: body rates -> Euler angle rates (using the ESTIMATED angles).
+    /// Gyro integration only: returns the new (roll, pitch, yaw) before any correction.
+    fn integrate_gyro(&self, gyro: Vec3, dt: f32) -> (f32, f32, f32) {
+        let (p, q, r) = (gyro.x, gyro.y, gyro.z);
         let (sin_roll, cos_roll) = self.attitude.roll.sin_cos();
         let (tan_pitch, cos_pitch) = (self.attitude.pitch.tan(), self.attitude.pitch.cos());
 
@@ -66,13 +63,29 @@ impl AttitudeEstimator {
         let pitch_dot = q * cos_roll - r * sin_roll;
         let yaw_dot = (q * sin_roll + r * cos_roll) / cos_pitch;
 
-        let mut roll = self.attitude.roll + roll_dot * dt;
-        let mut pitch = self.attitude.pitch + pitch_dot * dt;
-        let yaw = self.attitude.yaw + yaw_dot * dt;
+        (
+            self.attitude.roll + roll_dot * dt,
+            self.attitude.pitch + pitch_dot * dt,
+            self.attitude.yaw + yaw_dot * dt,
+        )
+    }
 
-        // 2.-4. Measure, gate, correct.
+    fn store(&mut self, roll: f32, pitch: f32, yaw: f32) -> Attitude {
+        self.attitude = Attitude {
+            roll: wrap_pi(roll),
+            pitch: pitch.clamp(-MAX_PITCH, MAX_PITCH),
+            yaw: wrap_pi(yaw),
+        };
+        self.attitude
+    }
+
+    /// One filter step: predict with the gyro, correct with the accelerometer.
+    pub fn update(&mut self, sample: &ImuSample, dt: f32) -> Attitude {
+        let alpha = self.config.tau / (self.config.tau + dt);
+        let (mut roll, mut pitch, yaw) = self.integrate_gyro(sample.gyro, dt);
+
         // A NaN accelerometer reading makes this comparison false, so it is
-        // ignored too (full sensor validation comes in a later phase).
+        // ignored too.
         let norm = sample.accel.norm();
         if (norm - GRAVITY).abs() <= self.config.accel_gate {
             let (roll_acc, pitch_acc) = tilt_from_accel(sample.accel);
@@ -80,12 +93,14 @@ impl AttitudeEstimator {
             pitch += (1.0 - alpha) * (pitch_acc - pitch);
         }
 
-        self.attitude = Attitude {
-            roll: wrap_pi(roll),
-            pitch: pitch.clamp(-MAX_PITCH, MAX_PITCH),
-            yaw: wrap_pi(yaw),
-        };
-        self.attitude
+        self.store(roll, pitch, yaw)
+    }
+
+    /// Prediction only: use when the accelerometer is not trustworthy.
+    /// The estimate coasts on the gyro and slowly drifts with its bias.
+    pub fn predict(&mut self, gyro: Vec3, dt: f32) -> Attitude {
+        let (roll, pitch, yaw) = self.integrate_gyro(gyro, dt);
+        self.store(roll, pitch, yaw)
     }
 }
 
@@ -221,5 +236,32 @@ mod tests {
         est.update(&broken, DT);
         assert!(est.attitude().roll.is_finite());
         assert!(est.attitude().pitch.is_finite());
+    }
+    #[test]
+    fn near_vertical_pitch_stays_finite_and_clamped() {
+        let mut est = AttitudeEstimator::new(EstimatorConfig::default());
+        // Gravity pointing along -x: the accelerometer says "pitched up 90 degrees".
+        let sample = ImuSample {
+            gyro: Vec3::ZERO,
+            accel: Vec3::new(-GRAVITY, 0.0, 0.0),
+        };
+        for _ in 0..5000 {
+            est.update(&sample, DT);
+        }
+        let a = est.attitude();
+        assert!(a.roll.is_finite() && a.pitch.is_finite() && a.yaw.is_finite());
+        assert!(a.pitch <= MAX_PITCH + 1e-6);
+        assert!(a.pitch > 1.0);
+    }
+    #[test]
+    fn predict_only_ignores_the_accelerometer() {
+        let mut est = AttitudeEstimator::new(EstimatorConfig::default());
+        for _ in 0..1000 {
+            est.predict(Vec3::ZERO, DT);
+        }
+        assert_eq!(est.attitude(), Attitude::default());
+
+        est.predict(Vec3::new(1.0, 0.0, 0.0), 0.1);
+        assert!((est.attitude().roll - 0.1).abs() < 1e-6);
     }
 }
